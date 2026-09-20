@@ -8,7 +8,7 @@
       "source": "./plugin",
       "displayName": "Kika",
       "description": "Five MCP tools over your engagement memory, plus an end-of-turn hook that records what was decided without the agent having to remember to.",
-      "homepage": "https://getkika.app/memory",
+      "homepage": "https://getkika.app/mcp",
       "category": "productivity",
       "keywords": ["memory", "mcp", "context", "consulting"]
     }
