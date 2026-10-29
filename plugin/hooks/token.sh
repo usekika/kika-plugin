@@ -112,20 +112,37 @@ token_from_oauth() {
     | .[0].value.accessToken // empty' 2>/dev/null
 }
 
+# Where the token came from, so a caller can tell a sign-in that renews itself
+# (oauth) from a key on disk, and knows which file to drop if it is rejected.
+HOOKS_KEY_FILE="$HOME/.kika/hooks-key"
 TOKEN="${KIKA_TOKEN:-}"
+TOKEN_SOURCE=env
 if [ -z "$TOKEN" ]; then
   # Strip the scheme: the config holds "Bearer kika_mcp_…", we want the token.
   TOKEN=$(token_from_mcp | head -1 | sed -E 's/^[Bb]earer[[:space:]]+//' | tr -d '[:space:]')
+  TOKEN_SOURCE=header
 fi
-[ -z "$TOKEN" ] && TOKEN=$(token_from_oauth | tr -d '[:space:]')
+if [ -z "$TOKEN" ]; then
+  TOKEN=$(token_from_oauth | tr -d '[:space:]')
+  TOKEN_SOURCE=oauth
+fi
 # Last resort, and now genuinely a last resort.
 if [ -z "$TOKEN" ] && [ -r "$HOME/.kika/token" ]; then
   TOKEN=$(tr -d '[:space:]' < "$HOME/.kika/token")
+  TOKEN_SOURCE=file
 fi
+# The capture hooks' own key, fetched by session-start.sh while the OAuth
+# sign-in still worked. It is what keeps capture alive after the hour: the OAuth
+# access token expires and only the agent renews it, which the hooks cannot.
+if [ -z "$TOKEN" ] && [ -r "$HOOKS_KEY_FILE" ]; then
+  TOKEN=$(tr -d '[:space:]' < "$HOOKS_KEY_FILE")
+  TOKEN_SOURCE=hooks-key
+fi
+[ -z "$TOKEN" ] && TOKEN_SOURCE=""
 
 kika_debug "config dir: $CONFIG_DIR"
 if [ -n "$TOKEN" ]; then
-  kika_debug "found a token (${#TOKEN} chars)"
+  kika_debug "found a token (${#TOKEN} chars, from $TOKEN_SOURCE)"
 else
-  kika_debug "NO token — looked at: \$KIKA_TOKEN, the Authorization header on the kika MCP server in $CONFIG_DIR/.claude.json and .mcp.json, the OAuth token in $CONFIG_DIR/.credentials.json (and the macOS keychain), and $HOME/.kika/token"
+  kika_debug "NO token — looked at: \$KIKA_TOKEN, the Authorization header on the kika MCP server in $CONFIG_DIR/.claude.json and .mcp.json, the OAuth token in $CONFIG_DIR/.credentials.json (and the macOS keychain), $HOME/.kika/token and $HOOKS_KEY_FILE"
 fi

@@ -125,17 +125,23 @@ if [ -n "$CWD" ] && [ -d "$CWD" ]; then
   BRANCH=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
 fi
 
-RESP=$(jq -n \
+OUT=$(jq -n \
   --arg excerpt "$EXCERPT" \
   --arg cwd "$CWD" \
   --arg gitRemote "$REMOTE" \
   --arg branch "$BRANCH" \
   --arg sessionId "$(printf '%s' "$INPUT" | jq -r '.session_id // ""')" \
   '{excerpt: $excerpt, cwd: $cwd, gitRemote: $gitRemote, branch: $branch, sessionId: $sessionId}' \
-  | curl -s -m 120 -X POST "$API/hooks/turn" \
+  | curl -s -m 120 -X POST "$API/hooks/turn" -w '\n%{http_code}' \
       -H "authorization: Bearer $TOKEN" \
       -H 'content-type: application/json' \
       --data-binary @- 2>/dev/null)
+RESP=$(printf '%s' "$OUT" | sed '$d')
+# The capture hooks' own key, revoked or expired: drop it, so the next session
+# that starts signed in fetches a fresh one (see session-start.sh).
+if [ "$(printf '%s' "$OUT" | tail -n 1)" = "401" ] && [ "$TOKEN_SOURCE" = "hooks-key" ]; then
+  rm -f "$HOOKS_KEY_FILE"
+fi
 
 # ── Bootstrap: a new engagement starts with the repository's own docs ──────
 #

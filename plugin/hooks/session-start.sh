@@ -64,6 +64,22 @@ capture_off() {
 # is reported the same day rather than tomorrow.
 signed_in() { rm -f "$HOME/.kika/warned-signed-out" 2>/dev/null; }
 
+# The capture hooks' own key. An OAuth access token lives an hour and only the
+# agent renews it, so capture used to stop an hour into any session where the
+# agent did not happen to call Kika. While this sign-in is fresh, ask for a
+# capture-only key and keep it (see token.sh). Once per machine; the server
+# refuses it for anything but the hooks. A pasted key or ~/.kika/token never
+# expires within a session, so only the OAuth path needs it.
+if [ "$TOKEN_SOURCE" = "oauth" ] && [ ! -s "$HOOKS_KEY_FILE" ]; then
+  KEY=$(curl -s -m 8 -X POST "$API/hooks/key" \
+    -H "authorization: Bearer $TOKEN" 2>/dev/null | jq -r '.token // empty' 2>/dev/null)
+  if [ -n "$KEY" ]; then
+    ( umask 077 && mkdir -p "$HOME/.kika" \
+      && printf '%s' "$KEY" > "$HOOKS_KEY_FILE.tmp" \
+      && mv "$HOOKS_KEY_FILE.tmp" "$HOOKS_KEY_FILE" ) 2>/dev/null
+  fi
+fi
+
 # The engagement is identified by the repository, exactly as capture does it.
 # Outside a repository there is nothing to resolve and nothing to say.
 REMOTE=$(git -C "$CWD" remote get-url origin 2>/dev/null || true)
@@ -79,7 +95,11 @@ OUT=$(curl -s -m 12 -G "$API/hooks/brief" -w '\n%{http_code}' \
 CODE=$(printf '%s' "$OUT" | tail -n 1)
 BRIEF=$(printf '%s' "$OUT" | sed '$d')
 case "$CODE" in
-  401) capture_off "the key was rejected" ;;
+  401)
+    # A revoked or expired hooks key is dropped, so the next fresh sign-in
+    # fetches another instead of this one failing every turn.
+    [ "$TOKEN_SOURCE" = "hooks-key" ] && rm -f "$HOOKS_KEY_FILE"
+    capture_off "the key was rejected" ;;
   2*) signed_in ;;
   *) BRIEF="" ;;
 esac

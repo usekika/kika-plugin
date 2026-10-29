@@ -101,10 +101,21 @@ than an empty page. The hook then posts to `https://api.getkika.app/hooks/bootst
 
 This happens once per project and never again.
 
-It reads a credential in one of three places, in this order: the `Authorization`
+It reads a credential in one of four places, in this order: the `Authorization`
 header you configured on the MCP server, the OAuth access token Claude Code
-holds **for this server** (macOS keychain, or `~/.claude/.credentials.json`), or
-`~/.kika/token`. It never reads a credential belonging to any other server. With
+holds **for this server** (macOS keychain, or `~/.claude/.credentials.json`),
+`~/.kika/token`, or `~/.kika/hooks-key`. It never reads a credential belonging
+to any other server.
+
+`~/.kika/hooks-key` exists because an OAuth access token lasts an hour and only
+the agent renews it — so without it, capture stopped an hour into any session
+where the agent did not happen to call Kika. While your OAuth sign-in is fresh,
+the session-start hook asks for a **capture-only** key once per machine and saves
+it there, readable only by you. The server accepts that key on the hooks and
+refuses it on the MCP tools, so it cannot search or read your memory beyond the
+session brief, and it cannot mint another key. It is listed at
+**getkika.app/app/connect** as "capture only", and revoking it there works like
+any key. With
 none of them present, capture exits immediately and sends nothing.
 
 What it does say: once a day, at the start of a session, if no credential is
