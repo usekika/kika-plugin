@@ -55,19 +55,27 @@ TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // ""')
 # A human entry is one whose content is a plain string, or an array with text
 # blocks and no tool_result block. The tail of it, since that is where a
 # conclusion is.
+#
+# Far enough back to reach it. The window was 400 lines, and a long agentic turn
+# writes more than that after the request: on 2026-10-29 a real turn ran ~950
+# lines of tool calls, the human message fell outside the window, the classifier
+# saw "User:" with nothing after it, dropped the turn — and the engagement it had
+# just created stayed empty. Lines are streamed one at a time (not slurped), so a
+# wide window costs no memory, and a half-written last line is skipped rather
+# than failing the whole parse.
 USER_MSG=""
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
-  USER_MSG=$(tail -n 400 "$TRANSCRIPT" 2>/dev/null \
-    | jq -rs '
-        [ .[]
-          | select(.type == "user")
-          | .message.content
-          | if type == "string" then .
-            elif type == "array" and any(.[]; .type == "tool_result") then empty
-            elif type == "array" then map(select(.type == "text") | .text) | join("\n")
-            else empty end
-          | select(length > 0)
-        ] | last // ""' 2>/dev/null \
+  USER_MSG=$(tail -n 20000 "$TRANSCRIPT" 2>/dev/null \
+    | jq -cR '
+        fromjson? // empty
+        | select(.type == "user")
+        | .message.content
+        | if type == "string" then .
+          elif type == "array" and any(.[]; .type == "tool_result") then empty
+          elif type == "array" then map(select(.type == "text") | .text) | join("\n")
+          else empty end
+        | select(length > 0)' 2>/dev/null \
+    | tail -n 1 | jq -r '. // ""' 2>/dev/null \
     | tail -c 4000)
 fi
 
@@ -117,7 +125,7 @@ if [ -n "$CWD" ] && [ -d "$CWD" ]; then
   BRANCH=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
 fi
 
-jq -n \
+RESP=$(jq -n \
   --arg excerpt "$EXCERPT" \
   --arg cwd "$CWD" \
   --arg gitRemote "$REMOTE" \
@@ -125,6 +133,59 @@ jq -n \
   --arg sessionId "$(printf '%s' "$INPUT" | jq -r '.session_id // ""')" \
   '{excerpt: $excerpt, cwd: $cwd, gitRemote: $gitRemote, branch: $branch, sessionId: $sessionId}' \
   | curl -s -m 120 -X POST "$API/hooks/turn" \
+      -H "authorization: Bearer $TOKEN" \
+      -H 'content-type: application/json' \
+      --data-binary @- 2>/dev/null)
+
+# ── Bootstrap: a new engagement starts with the repository's own docs ──────
+#
+# Capture learns from conversations, so a project born from a repository that
+# had been worked on for days opened empty while its README and CLAUDE.md sat
+# right here. The server says when it wants them — once per project, ever —
+# and only then is anything beyond the turn sent.
+#
+# TRACKED markdown only, via git ls-files: whatever is committed is already
+# shared with everyone who can clone it, and an untracked .env or scratch note
+# can never be picked up. Bounded per file and in count; the server bounds it
+# again.
+[ "$(printf '%s' "$RESP" | jq -r '.bootstrap // false' 2>/dev/null)" = "true" ] || exit 0
+ROOT=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)
+[ -n "$ROOT" ] || exit 0
+
+# The docs that say what an engagement IS come first; then the rest of the
+# top-level markdown; then one level down (docs/, clients/…).
+DOCS=$(git -C "$ROOT" ls-files -- '*.md' '*.MD' 2>/dev/null \
+  | awk -F/ 'NF <= 2 && $0 !~ /^\./' \
+  | awk '{
+      b = tolower($0)
+      top = index(b, "/") == 0
+      if (top && b ~ /^readme/) p = 0
+      else if (b == "claude.md" || b == "agents.md") p = 1
+      else if (top && b ~ /^(architecture|overview|design|context)/) p = 2
+      else if (top) p = 3
+      else p = 4
+      print p "\t" $0
+    }' \
+  | sort -t "$(printf '\t')" -k1,1n -k2,2 \
+  | cut -f2- \
+  | head -n 12)
+[ -n "$DOCS" ] || exit 0
+
+DOCS_JSON=$(printf '%s\n' "$DOCS" | while IFS= read -r f; do
+  [ -f "$ROOT/$f" ] || continue
+  head -c 8000 "$ROOT/$f" | jq -Rs --arg path "$f" '{path: $path, text: .}'
+done | jq -s '.')
+
+COMMITS=$(git -C "$ROOT" log -n 60 --date=short --format='%ad %s' 2>/dev/null | head -c 4000)
+
+jq -n \
+  --argjson docs "${DOCS_JSON:-[]}" \
+  --arg commits "$COMMITS" \
+  --arg cwd "$CWD" \
+  --arg gitRemote "$REMOTE" \
+  --arg branch "$BRANCH" \
+  '{docs: $docs, commits: $commits, cwd: $cwd, gitRemote: $gitRemote, branch: $branch}' \
+  | curl -s -m 20 -X POST "$API/hooks/bootstrap" \
       -H "authorization: Bearer $TOKEN" \
       -H 'content-type: application/json' \
       --data-binary @- >/dev/null 2>&1

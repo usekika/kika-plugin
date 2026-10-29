@@ -84,9 +84,22 @@ When a finished turn looks like it settled something, the hook posts to
 - the working directory, and `git remote get-url origin` for it
 - the Claude Code session id
 
-It does **not** send file contents, your repository, your environment, or any
-other conversation. Most turns are discarded on your machine before any request
-is made at all.
+It does **not** send your source code, your environment, or any other
+conversation. Most turns are discarded on your machine before any request is
+made at all.
+
+**Once per project**, when Kika first creates the project for a repository, it
+asks for that repository's docs so the project starts with an overview rather
+than an empty page. The hook then posts to `https://api.getkika.app/hooks/bootstrap`:
+
+- up to 12 **committed** markdown files from the top two levels of the
+  repository (README, CLAUDE.md, AGENTS.md, architecture docs first), at most
+  8,000 characters each. Only files `git ls-files` lists — never untracked
+  files, never anything under a dot-directory
+- the subjects and dates of the last 60 commits (at most 4,000 characters)
+- the working directory, git remote and branch
+
+This happens once per project and never again.
 
 It reads a credential in one of three places, in this order: the `Authorization`
 header you configured on the MCP server, the OAuth access token Claude Code

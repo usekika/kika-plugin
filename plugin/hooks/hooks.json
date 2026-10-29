@@ -8,7 +8,7 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/capture.sh",
             "args": [],
             "async": true,
-            "timeout": 120,
+            "timeout": 150,
             "statusMessage": "Kika: remembering\u2026"
           }
         ]
