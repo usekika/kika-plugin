@@ -105,8 +105,13 @@ It reads a credential in one of three places, in this order: the `Authorization`
 header you configured on the MCP server, the OAuth access token Claude Code
 holds **for this server** (macOS keychain, or `~/.claude/.credentials.json`), or
 `~/.kika/token`. It never reads a credential belonging to any other server. With
-none of them present it exits immediately and silently, so an uninstalled or
-unauthenticated setup costs nothing and says nothing.
+none of them present, capture exits immediately and sends nothing.
+
+What it does say: once a day, at the start of a session, if no credential is
+found or the server rejects the one it has, you see one line — "Kika is not
+signed in … nothing from this session will be remembered". Capture that is off
+should never look like capture with nothing to save. That check runs on your
+machine and sends nothing but the request it was going to make anyway.
 
 The hook runs after your turn ends and never blocks it. It exits quietly in
 every path, including failure: a hook that interrupts you is a hook you disable.
@@ -123,5 +128,6 @@ that removes it.
 
 ## Turning it off
 
-Remove the plugin, or `claude mcp remove kika`. With no token to find, the hook
-exits immediately and silently.
+Remove the plugin. Removing only the MCP server (`claude mcp remove kika`)
+leaves the hooks installed with no token to find: nothing is sent, and the
+once-a-day "not signed in" line appears until the plugin is removed too.

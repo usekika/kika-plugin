@@ -1,7 +1,7 @@
 {
   "name": "kika",
   "description": "Shared memory for your client engagements. Reads and writes each project's graph over MCP, and captures what was decided at the end of every turn without being asked.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "homepage": "https://getkika.app/mcp",
   "author": {
     "name": "Kika"
